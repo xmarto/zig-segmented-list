@@ -82,28 +82,28 @@ const Allocator = std.mem.Allocator;
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
         unmanaged: Unmanaged,
-        allocator: *Allocator,
-        
+        allocator: Allocator,
+
         const Self = @This();
         const Unmanaged = SegmentedListUnmanaged(T, prealloc_item_count);
         const Iterator = Unmanaged.Iterator;
         const ShelfIndex = Unmanaged.ShelfIndex;
         const AtType = Unmanaged.AtType;
-        
+
         pub const prealloc_count = prealloc_item_count;
-        
-        pub fn init(allocator: *Allocator) Self {
+
+        pub fn init(allocator: Allocator) Self {
             return .{
                 .unmanaged = Unmanaged.init(),
                 .allocator = allocator,
             };
         }
-        
+
         pub fn deinit(self: *Self) void {
             self.unmanaged.deinit(self.allocator);
             self.* = undefined;
         }
-        
+
         pub fn at(self: anytype, i: usize) AtType(@TypeOf(self)) {
             return self.unmanaged.at(i);
         }
@@ -221,7 +221,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
             };
         }
 
-        pub fn deinit(self: *Self, allocator: *Allocator) void {
+        pub fn deinit(self: *Self, allocator: Allocator) void {
             self.freeShelves(allocator, @intCast(ShelfIndex, self.dynamic_segments.len), 0);
             allocator.free(self.dynamic_segments);
             self.* = undefined;
@@ -236,12 +236,12 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
             return self.len;
         }
 
-        pub fn push(self: *Self, allocator: *Allocator, item: T) !void {
+        pub fn push(self: *Self, allocator: Allocator, item: T) !void {
             const new_item_ptr = try self.addOne(allocator);
             new_item_ptr.* = item;
         }
 
-        pub fn pushMany(self: *Self, allocator: *Allocator, items: []const T) !void {
+        pub fn pushMany(self: *Self, allocator: Allocator, items: []const T) !void {
             for (items) |item| {
                 try self.push(allocator, item);
             }
@@ -256,7 +256,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
             return result;
         }
 
-        pub fn addOne(self: *Self, allocator: *Allocator) !*T {
+        pub fn addOne(self: *Self, allocator: Allocator) !*T {
             const new_length = self.len + 1;
             try self.growCapacity(allocator, new_length);
             const result = uncheckedAt(self, self.len);
@@ -265,7 +265,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
         }
 
         /// Grows or shrinks capacity to match usage.
-        pub fn setCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
+        pub fn setCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
             if (prealloc_item_count != 0) {
                 if (new_capacity <= @as(usize, 1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
                     return self.shrinkCapacity(allocator, new_capacity);
@@ -275,7 +275,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
         }
 
         /// Only grows capacity, or retains current capacity
-        pub fn growCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
+        pub fn growCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
             const new_cap_shelf_count = shelfCount(new_capacity);
             const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
@@ -292,7 +292,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
         }
 
         /// Only shrinks capacity or retains current capacity
-        pub fn shrinkCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) void {
+        pub fn shrinkCapacity(self: *Self, allocator: Allocator, new_capacity: usize) void {
             if (new_capacity <= prealloc_item_count) {
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(allocator, len, 0);
@@ -357,9 +357,9 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
 
         fn shelfCount(box_count: usize) ShelfIndex {
             if (prealloc_item_count == 0) {
-                return std.math.log2_int_ceil(usize, box_count + 1);
+                return @intCast(ShelfIndex, std.math.log2_int_ceil(usize, box_count + 1));
             }
-            return std.math.log2_int_ceil(usize, box_count + prealloc_item_count) - prealloc_exp - 1;
+            return @intCast(ShelfIndex, std.math.log2_int_ceil(usize, box_count + prealloc_item_count) - prealloc_exp - 1);
         }
 
         fn shelfSize(shelf_index: ShelfIndex) usize {
@@ -383,7 +383,7 @@ pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: us
             return list_index + prealloc_item_count - (@as(usize, 1) << ((prealloc_exp + 1) + shelf_index));
         }
 
-        fn freeShelves(self: *Self, allocator: *Allocator, from_count: ShelfIndex, to_count: ShelfIndex) void {
+        fn freeShelves(self: *Self, allocator: Allocator, from_count: ShelfIndex, to_count: ShelfIndex) void {
             var i = from_count;
             while (i != to_count) {
                 i -= 1;
@@ -482,7 +482,7 @@ test "std.SegmentedList" {
     try testSegmentedList(16, a);
 }
 
-fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
+fn testSegmentedList(comptime prealloc: usize, allocator: Allocator) !void {
     var list = SegmentedList(i32, prealloc).init(allocator);
     defer list.deinit();
 
@@ -490,14 +490,14 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
             try list.push(@intCast(i32, i + 1));
-            testing.expect(list.count() == i + 1);
+            try testing.expect(list.count() == i + 1);
         }
     }
 
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            testing.expect(list.at(i).* == @intCast(i32, i + 1));
+            try testing.expect(list.at(i).* == @intCast(i32, i + 1));
         }
     }
 
@@ -506,32 +506,32 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var x: i32 = 0;
         while (it.next()) |item| {
             x += 1;
-            testing.expect(item.* == x);
+            try testing.expect(item.* == x);
         }
-        testing.expect(x == 100);
+        try testing.expect(x == 100);
         while (it.prev()) |item| : (x -= 1) {
-            testing.expect(item.* == x);
+            try testing.expect(item.* == x);
         }
-        testing.expect(x == 0);
+        try testing.expect(x == 0);
     }
 
-    testing.expect(list.pop().? == 100);
-    testing.expect(list.count() == 99);
+    try testing.expect(list.pop().? == 100);
+    try testing.expect(list.count() == 99);
 
     try list.pushMany(&[_]i32{ 1, 2, 3 });
-    testing.expect(list.count() == 102);
-    testing.expect(list.pop().? == 3);
-    testing.expect(list.pop().? == 2);
-    testing.expect(list.pop().? == 1);
-    testing.expect(list.count() == 99);
+    try testing.expect(list.count() == 102);
+    try testing.expect(list.pop().? == 3);
+    try testing.expect(list.pop().? == 2);
+    try testing.expect(list.pop().? == 1);
+    try testing.expect(list.count() == 99);
 
     try list.pushMany(&[_]i32{});
-    testing.expect(list.count() == 99);
+    try testing.expect(list.count() == 99);
 
     {
         var i: i32 = 99;
         while (list.pop()) |item| : (i -= 1) {
-            testing.expect(item == i);
+            try testing.expect(item == i);
             list.shrinkCapacity(list.count());
         }
     }
@@ -548,11 +548,11 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
 
         std.mem.set(i32, dest[0..], 0);
         list.writeToSlice(dest[0..], 0);
-        testing.expect(std.mem.eql(i32, control[0..], dest[0..]));
+        try testing.expect(std.mem.eql(i32, control[0..], dest[0..]));
 
         std.mem.set(i32, dest[0..], 0);
         list.writeToSlice(dest[50..], 50);
-        testing.expect(std.mem.eql(i32, control[50..], dest[50..]));
+        try testing.expect(std.mem.eql(i32, control[50..], dest[50..]));
     }
 
     try list.setCapacity(0);
